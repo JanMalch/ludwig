@@ -22,7 +22,9 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.IntSize
 import com.baec23.ludwig.morpher.MorphAnimator
 import com.baec23.ludwig.morpher.model.morpher.VectorSource
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 @Composable
 fun AnimatedVector(
@@ -90,13 +92,15 @@ fun AnimatedVector(
         if (canvasSize.width == 0) {
             return@LaunchedEffect
         }
-        morphAnimator = MorphAnimator(
-            start = startSource,
-            end = endSource,
-            width = canvasSize.width.toFloat(),
-            height = canvasSize.height.toFloat(),
-            smoothness = animationSmoothness
-        )
+        morphAnimator = withContext(Dispatchers.Default) {
+            MorphAnimator(
+                start = startSource,
+                end = endSource,
+                width = canvasSize.width.toFloat(),
+                height = canvasSize.height.toFloat(),
+                smoothness = animationSmoothness
+            )
+        }
     }
 
     Box(modifier = modifier) {

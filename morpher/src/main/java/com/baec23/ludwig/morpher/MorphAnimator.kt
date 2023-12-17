@@ -3,7 +3,7 @@ package com.baec23.ludwig.morpher
 import android.util.Log
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.vector.PathParser
+import androidx.compose.ui.graphics.vector.PathNode
 import com.baec23.ludwig.morpher.model.morpher.MorpherAnimationData
 import com.baec23.ludwig.morpher.model.morpher.MorpherPathData
 import com.baec23.ludwig.morpher.model.path.PairedSubpath
@@ -13,82 +13,73 @@ import com.baec23.ludwig.morpher.util.calcLength
 import com.baec23.ludwig.morpher.util.normalize
 import com.baec23.ludwig.morpher.util.splitPaths
 import com.baec23.ludwig.morpher.util.toPath
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
 
-class MorphAnimator() {
-    lateinit var pathData: MorpherPathData
-    lateinit var animationData: MorpherAnimationData
-
-    constructor(
-        start: VectorSource,
-        end: VectorSource,
-        width: Float = 0f,
-        height: Float = 0f,
-        smoothness: Int = 100
-    ) : this() {
-        pathData = runBlocking { generatePathData(start, end, width, height) }
-        val pairedArray = Array<Path?>(smoothness + 1) { null }
-        val unpairedStartArray = Array<Path?>(smoothness + 1) { null }
-        val unpairedEndArray = Array<Path?>(smoothness + 1) { null }
-
-        pairedArray[0] = pathData.pairedSubpaths.map { pairedSubpath ->
-            pairedSubpath.getInterpolatedPathNodes(0f)
-        }.flatten().toPath()
-        pairedArray[smoothness] = pathData.pairedSubpaths.map { pairedSubpath ->
-            pairedSubpath.getInterpolatedPathNodes(1f)
-        }.flatten().toPath()
-
-        unpairedStartArray[0] = pathData.unpairedStartSubpaths.map { pairedSubpath ->
-            pairedSubpath.getInterpolatedPathNodes(0f)
-        }.flatten().toPath()
-        unpairedStartArray[smoothness] = pathData.unpairedStartSubpaths.map { pairedSubpath ->
-            pairedSubpath.getInterpolatedPathNodes(1f)
-        }.flatten().toPath()
-
-        unpairedEndArray[0] = pathData.unpairedEndSubpaths.map { pairedSubpath ->
-            pairedSubpath.getInterpolatedPathNodes(0f)
-        }.flatten().toPath()
-        unpairedEndArray[smoothness] = pathData.unpairedEndSubpaths.map { pairedSubpath ->
-            pairedSubpath.getInterpolatedPathNodes(1f)
-        }.flatten().toPath()
-
-        animationData = MorpherAnimationData(
-            pairedPaths = pairedArray,
-            unpairedStartPaths = unpairedStartArray,
-            unpairedEndPaths = unpairedEndArray
-        )
-    }
-
-    constructor(
-        precomputedPathData: MorpherPathData,
-        precomputedAnimationData: MorpherAnimationData
-    ) : this() {
-        this.pathData = precomputedPathData
-        this.animationData = precomputedAnimationData
-    }
+class MorphAnimator(
+    private val pathData: MorpherPathData,
+    private val animationData: MorpherAnimationData,
+) {
 
     companion object {
-        suspend fun precomputeData(
+        operator fun invoke(
+            start: VectorSource,
+            end: VectorSource,
+            width: Float = 0f,
+            height: Float = 0f,
+            smoothness: Int = 100
+        ): MorphAnimator {
+            val pathData = generatePathData(start, end, width, height)
+            val pairedArray = Array<Path?>(smoothness + 1) { null }
+            val unpairedStartArray = Array<Path?>(smoothness + 1) { null }
+            val unpairedEndArray = Array<Path?>(smoothness + 1) { null }
+
+            pairedArray[0] = pathData.pairedSubpaths.flatMap { pairedSubpath ->
+                pairedSubpath.getInterpolatedPathNodes(0f)
+            }.toPath()
+            pairedArray[smoothness] = pathData.pairedSubpaths.flatMap { pairedSubpath ->
+                pairedSubpath.getInterpolatedPathNodes(1f)
+            }.toPath()
+
+            unpairedStartArray[0] = pathData.unpairedStartSubpaths.flatMap { pairedSubpath ->
+                pairedSubpath.getInterpolatedPathNodes(0f)
+            }.toPath()
+            unpairedStartArray[smoothness] =
+                pathData.unpairedStartSubpaths.flatMap { pairedSubpath ->
+                    pairedSubpath.getInterpolatedPathNodes(1f)
+                }.toPath()
+
+            unpairedEndArray[0] = pathData.unpairedEndSubpaths.flatMap { pairedSubpath ->
+                pairedSubpath.getInterpolatedPathNodes(0f)
+            }.toPath()
+            unpairedEndArray[smoothness] = pathData.unpairedEndSubpaths.flatMap { pairedSubpath ->
+                pairedSubpath.getInterpolatedPathNodes(1f)
+            }.toPath()
+
+            val animationData = MorpherAnimationData(
+                pairedPaths = pairedArray,
+                unpairedStartPaths = unpairedStartArray,
+                unpairedEndPaths = unpairedEndArray
+            )
+            return MorphAnimator(pathData, animationData)
+        }
+
+        fun precomputeData(
             start: VectorSource,
             end: VectorSource,
             width: Float = 0f,
             height: Float = 0f,
             smoothness: Int = 200
-        ): Pair<MorpherPathData, MorpherAnimationData> = withContext(Dispatchers.Default) {
+        ): Pair<MorpherPathData, MorpherAnimationData> {
             val pathData = generatePathData(start, end, width, height)
             val animationData = generateAnimationData(pathData, smoothness)
-            return@withContext Pair(pathData, animationData)
+            return Pair(pathData, animationData)
         }
 
-        private suspend fun generatePathData(
+        private fun generatePathData(
             start: VectorSource,
             end: VectorSource,
             width: Float = 0f,
             height: Float = 0f
-        ): MorpherPathData = withContext(Dispatchers.Default) {
+        ): MorpherPathData {
             //Calc offset / scale
             val startBounds = start.bounds
             val endBounds = end.bounds
@@ -110,10 +101,10 @@ class MorphAnimator() {
 
             //Split into subpaths
             val startSubpathNodes =
-                normalizedStartNodes.splitPaths().sortedByDescending { it.calcLength() }
+                normalizedStartNodes.splitPaths().sortedByDescending(List<PathNode>::calcLength)
 
             val endSubpathNodes =
-                normalizedEndNodes.splitPaths().sortedByDescending { it.calcLength() }
+                normalizedEndNodes.splitPaths().sortedByDescending(List<PathNode>::calcLength)
 
             //Arrange into paired (morphing) and unpaired (no morphing)
             val numStartSubpaths = startSubpathNodes.size
@@ -136,47 +127,41 @@ class MorphAnimator() {
             for (i in numAnimatedSubpaths until numEndSubpaths) {
                 _unpairedEndSubpaths.add(UnpairedSubpath(endSubpathNodes[i]))
             }
-            return@withContext MorpherPathData(
+            return MorpherPathData(
                 pairedSubpaths = _pairedSubpaths.toList(),
                 unpairedStartSubpaths = _unpairedStartSubpaths.toList(),
                 unpairedEndSubpaths = _unpairedEndSubpaths.toList()
             )
         }
 
-        private suspend fun generateAnimationData(
+        private fun generateAnimationData(
             pathData: MorpherPathData,
             smoothness: Int
-        ): MorpherAnimationData = withContext(Dispatchers.Default) {
-            val paired = async {
+        ): MorpherAnimationData {
+            val paired =
                 Array<Path?>(smoothness + 1) { index ->
-                    pathData.pairedSubpaths.map { subpath ->
+                    pathData.pairedSubpaths.flatMap { subpath ->
                         subpath.getInterpolatedPathNodes(index / smoothness.toFloat())
-                    }.flatten().toPath()
+                    }.toPath()
                 }
-            }
-            val unpairedStart = async {
+            val unpairedStart =
                 Array<Path?>(smoothness + 1) { index ->
-                    pathData.unpairedStartSubpaths.map { subpath ->
-                        subpath.getInterpolatedPathNodes(index / smoothness.toFloat())
-
-                    }.flatten().toPath()
-                }
-            }
-            val unpairedEnd = async {
-                Array<Path?>(smoothness + 1) { index ->
-                    pathData.unpairedEndSubpaths.map { subpath ->
+                    pathData.unpairedStartSubpaths.flatMap { subpath ->
                         subpath.getInterpolatedPathNodes(index / smoothness.toFloat())
 
-                    }.flatten().toPath()
+                    }.toPath()
                 }
-            }
-            val pairedPaths = paired.await()
-            val unpairedStartPaths = unpairedStart.await()
-            val unpairedEndPaths = unpairedEnd.await()
-            return@withContext MorpherAnimationData(
-                pairedPaths = pairedPaths,
-                unpairedStartPaths = unpairedStartPaths,
-                unpairedEndPaths = unpairedEndPaths
+            val unpairedEnd =
+                Array<Path?>(smoothness + 1) { index ->
+                    pathData.unpairedEndSubpaths.flatMap { subpath ->
+                        subpath.getInterpolatedPathNodes(index / smoothness.toFloat())
+
+                    }.toPath()
+                }
+            return MorpherAnimationData(
+                pairedPaths = paired,
+                unpairedStartPaths = unpairedStart,
+                unpairedEndPaths = unpairedEnd
             )
         }
     }
@@ -185,10 +170,8 @@ class MorphAnimator() {
         var cachedPath = animationData.getInterpolatedPairedPath(fraction)
         if (cachedPath == null) {
 //            Log.d("DEBUG", "Paired path cache miss - ${fraction}")
-            val pathNodes = pathData.pairedSubpaths.map { it.getInterpolatedPathNodes(fraction) }
-            val pathParser = PathParser()
-            pathParser.addPathNodes(pathNodes.flatten())
-            cachedPath = pathParser.toPath()
+            val pathNodes = pathData.pairedSubpaths.flatMap { it.getInterpolatedPathNodes(fraction) }
+            cachedPath = pathNodes.toPath()
             animationData.setInterpolatedPairedPath(fraction, cachedPath)
         }
         return cachedPath
@@ -199,10 +182,8 @@ class MorphAnimator() {
         if (cachedPath == null) {
 //            Log.d("DEBUG", "Unpaired start path cache miss - ${fraction}")
             val pathNodes =
-                pathData.unpairedStartSubpaths.map { it.getInterpolatedPathNodes(fraction) }
-            val pathParser = PathParser()
-            pathParser.addPathNodes(pathNodes.flatten())
-            cachedPath = pathParser.toPath()
+                pathData.unpairedStartSubpaths.flatMap { it.getInterpolatedPathNodes(fraction) }
+            cachedPath = pathNodes.toPath()
             animationData.setInterpolatedUnpairedStartPath(fraction, cachedPath)
         }
         return cachedPath
@@ -213,10 +194,8 @@ class MorphAnimator() {
         if (cachedPath == null) {
 //            Log.d("DEBUG", "Unpaired end path cache miss - ${fraction}")
             val pathNodes =
-                pathData.unpairedEndSubpaths.map { it.getInterpolatedPathNodes(fraction) }
-            val pathParser = PathParser()
-            pathParser.addPathNodes(pathNodes.flatten())
-            cachedPath = pathParser.toPath()
+                pathData.unpairedEndSubpaths.flatMap { it.getInterpolatedPathNodes(fraction) }
+            cachedPath = pathNodes.toPath()
             animationData.setInterpolatedEndPath(fraction, cachedPath)
         }
         return cachedPath
